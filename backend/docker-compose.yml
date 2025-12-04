@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: assignment-tracker-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      - MONGO_INITDB_DATABASE=assignment-tracker
+
+  backend:
+    build: .
+    container_name: assignment-tracker-backend
+    ports:
+      - "5000:5000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - mongodb
+    environment:
+      - PORT=5000
+      - MONGODB_URI=mongodb://mongodb:27017/assignment-tracker
+      - JWT_SECRET=your_super_secret_jwt_key
+    command: npm run dev
+
+volumes:
+  mongo-data:
