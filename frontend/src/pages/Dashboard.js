@@ -30,27 +30,51 @@ function Dashboard() {
     fetchAssignments();
   }, [user, navigate]);
 
-  const fetchAssignments = async () => {
-    try {
-      setLoading(true);
-      setError('');
-      const response = await API.get('/assignments');
-      
-      if (response.data.success) {
-        setAssignments(response.data.data || []);
-      } else {
-        setAssignments([]);
-        setError('Could not load assignments');
-      }
-    } catch (err) {
-      console.error('Failed to fetch assignments:', err.message);
-      setAssignments([]);
-      setError('Starting fresh. Add your first assignment!');
-    } finally {
-      setLoading(false);
-  }
-  };
+const fetchAssignments = async () => {
+  try {
+    setLoading(true);
+    setError('');
+    
+    const token = localStorage.getItem('token'); 
+    
+    if (!token) {
+      console.error('Authentication token missing. Navigating to login.');
+      navigate('/login');
+      return;
+    }
 
+    const response = await fetch('http://localhost:5000/api/assignments', { 
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}` 
+      }
+    });
+
+    const data = await response.json(); 
+    
+    if (response.ok) { 
+      // FIXED LINE: Your backend returns direct array, not {data: array}
+      setAssignments(Array.isArray(data) ? data : []); 
+    } else {
+      setAssignments([]);
+      if (response.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        navigate('/login');
+        return;
+      }
+      setError(data.message || 'Could not load assignments');
+    }
+
+  } catch (err) {
+    console.error('❌ Failed to fetch assignments:', err.message);
+    setAssignments([]);
+    setError('Connection error or unauthorized. Please verify server status.');
+  } finally {
+    setLoading(false);
+  }
+};
+    
   const handleLogout = () => {
     if (window.confirm('Are you sure you want to logout?')) {
       localStorage.removeItem('token');
@@ -106,41 +130,115 @@ function Dashboard() {
   }
 };
   const handleUpdateAssignment = async (id, updatedData) => {
-    try {
-      setError('');
-      const response = await API.put(`/assignments/${id}`, updatedData);
-      
-      if (response.data.success) {
-        setAssignments(assignments.map(a => 
-          a._id === id ? response.data.data : a
-        ));
-        setEditingAssignment(null);
-      } else {
-        setError(response.data.message || 'Failed to update assignment');
-      }
-    } catch (err) {
-      console.error('Update assignment error:', err);
-      setError('Failed to update assignment. Please try again.');
-    }
-  };
-
-  const handleDeleteAssignment = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this assignment?')) return;
+  console.log('✏️ Attempting to update assignment ID:', id);
+  console.log('📦 Update data:', updatedData);
+  console.log('📋 Current assignments:', assignments);
+  
+  try {
+    const token = localStorage.getItem('token');
     
-    try {
-      setError('');
-      const response = await API.delete(`/assignments/${id}`);
-      
-      if (response.data.success) {
-        setAssignments(assignments.filter(a => a._id !== id));
-      } else {
-        setError(response.data.message || 'Failed to delete assignment');
-      }
-    } catch (err) {
-      console.error('Delete assignment error:', err);
-      setError('Failed to delete assignment. Please try again.');
+    if (!token) {
+      setError('Please login again');
+      return;
     }
-  };
+    
+    // Format the data
+    const dataToSend = {
+      title: updatedData.title || '',
+      course: updatedData.course || '',
+      dueDate: updatedData.dueDate || new Date().toISOString().split('T')[0],
+      priority: updatedData.priority || 'medium',
+      status: updatedData.status || 'pending',
+      description: updatedData.description || ''
+    };
+    
+    console.log('📤 Sending to backend:', dataToSend);
+    
+    // Use fetch for consistency
+    const response = await fetch(`http://localhost:5000/api/assignments/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': token
+      },
+      body: JSON.stringify(dataToSend)
+    });
+    
+    const result = await response.json();
+    console.log('✅ Update response:', result);
+    
+    if (response.ok) {
+      // Update the assignment in state
+      const updatedAssignments = assignments.map(assignment => {
+        if (assignment._id === id) {
+          return { ...assignment, ...dataToSend };
+        }
+        return assignment;
+      });
+      
+      console.log('🔄 Updated assignments:', updatedAssignments);
+      setAssignments(updatedAssignments);
+      setEditingAssignment(null);
+      
+      // Show success
+      setError('Assignment updated successfully!');
+      setTimeout(() => setError(''), 3000);
+    } else {
+      setError(`Failed to update: ${result.error || result.message}`);
+    }
+    
+  } catch (error) {
+    console.error('❌ Update error:', error);
+    setError('Error updating assignment. Check console for details.');
+  }
+};
+
+const handleDeleteAssignment = async (id) => {
+  console.log('🗑️ Attempting to delete assignment ID:', id);
+  console.log('📋 Current assignments:', assignments);
+  
+  if (!window.confirm('Are you sure you want to delete this assignment?')) {
+    return;
+  }
+  
+  try {
+    // Get token from localStorage
+    const token = localStorage.getItem('token');
+    
+    if (!token) {
+      alert('Please login again');
+      return;
+    }
+    
+    console.log('🔑 Token available:', token ? 'Yes' : 'No');
+    
+    // Use fetch instead of API for consistency
+    const response = await fetch(`http://localhost:5000/api/assignments/${id}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': token
+      }
+    });
+    
+    const result = await response.json();
+    console.log('🗑️ Delete response:', result);
+    
+    if (response.ok) {
+      // Filter out the deleted assignment from state
+      const updatedAssignments = assignments.filter(assignment => assignment._id !== id);
+      console.log('✅ Updated assignments after delete:', updatedAssignments);
+      
+      setAssignments(updatedAssignments);
+      alert('✅ Assignment deleted successfully!');
+    } else {
+      alert(`❌ Failed to delete: ${result.error || result.message}`);
+    }
+    
+  } catch (error) {
+    console.error('❌ Delete error:', error);
+    alert('❌ Error deleting assignment. Check console for details.');
+  }
+};
 
   const handleToggleStatus = async (id) => {
     const assignment = assignments.find(a => a._id === id);

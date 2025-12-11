@@ -1,5 +1,7 @@
+require("dotenv").config();
 const express = require('express');
 const cors = require('cors');
+const mongoose = require('mongoose');
 
 const app = express();
 
@@ -7,128 +9,100 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ========== SIMPLE IN-MEMORY DATABASE ==========
-let users = [];
-let assignments = [];
+// ========== MONGODB CONNECTION ==========
+mongoose.connect(process.env.MONGODB_URI || "mongodb://mongodb:27017/assignment-tracker")
+  .then(() => console.log("✅ MongoDB Connected Successfully"))
+  .catch((err) => {
+    console.error("❌ MongoDB Connection Error:", err.message);
+  });
 
-// ========== TEST ROUTES (MUST WORK) ==========
+// ========== MONGODB MODELS ==========
+const userSchema = new mongoose.Schema({
+  id: String,
+  username: String,
+  email: String,
+  password: String,
+  createdAt: Date
+});
+
+const assignmentSchema = new mongoose.Schema({
+  _id: String,
+  userId: String,
+  title: String,
+  course: String,
+  dueDate: String,
+  priority: String,
+  status: String,
+  description: String,
+  createdAt: Date,
+  updatedAt: Date
+});
+
+const User = mongoose.model('User', userSchema);
+const Assignment = mongoose.model('Assignment', assignmentSchema);
+
+// ========== ROUTES ==========
+
+// Test route
 app.get('/', (req, res) => {
   res.send('HomeworkHub API - Manage your assignments efficiently');
 });
 
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    message: 'Server is healthy',
-    timestamp: new Date().toISOString(),
-    users: users.length,
-    assignments: assignments.length
-  });
-});
+// ========== AUTH ROUTES ==========
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
 
-// ========== AUTH ROUTES (WILL WORK) ==========
-app.post('/api/auth/register', (req, res) => {
-  console.log('📝 REGISTER:', req.body);
-  
-  const { username, email, password } = req.body;
-  
-  // Check if user exists
-  const existingUser = users.find(u => u.email === email);
-  if (existingUser) {
-    return res.status(400).json({ 
-      success: false,
-      message: 'User already exists' 
-    });
-  }
-  
-  // Create new user
-  const newUser = {
-    id: 'user_' + Date.now(),
-    username,
-    email,
-    password, // In real app, hash this!
-    createdAt: new Date()
-  };
-  
-  users.push(newUser);
-  console.log('✅ User saved:', newUser.email);
-  
-  // Return success
-  res.status(201).json({
-    success: true,
-    message: 'Registration successful!',
-    token: 'jwt_token_' + Date.now(),
-    user: {
-      id: newUser.id,
-      username: newUser.username,
-      email: newUser.email
+    // Find user in MongoDB
+    let user = await User.findOne({ email, password });
+
+    if (!user) {
+      // If no user found, create demo user
+      user = new User({
+        id: 'demo_' + Date.now(),
+        username: 'HomeworkHub Student',
+        email,
+        password,
+        createdAt: new Date()
+      });
+
+      await user.save();
     }
-  });
-});
 
-app.post('/api/auth/login', (req, res) => {
-  console.log('🔑 LOGIN:', req.body.email);
-  
-  const { email, password } = req.body;
-  
-  // Find user
-  const user = users.find(u => u.email === email && u.password === password);
-  
-  if (!user) {
-    // If no user found, create a demo user
-    const demoUser = {
-      id: 'demo_' + Date.now(),
-      username: 'HomeworkHub Student',
-      email: email,
-      password: password,
-      createdAt: new Date()
-    };
-    
-    users.push(demoUser);
-    
-    res.json({
-      success: true,
-      message: 'Login successful (demo account created)',
-      token: 'jwt_token_' + Date.now(),
-      user: {
-        id: demoUser.id,
-        username: demoUser.username,
-        email: demoUser.email
-      }
-    });
-  } else {
     res.json({
       success: true,
       message: 'Login successful!',
-      token: 'jwt_token_' + Date.now(),
+      token: 'jwt_token_' + user.id,
       user: {
         id: user.id,
         username: user.username,
         email: user.email
       }
     });
+  } catch (err) {
+    console.error("Login error:", err);
+    res.status(500).json({ success: false, error: 'Login failed' });
   }
 });
 
-// ========== ASSIGNMENT ROUTES ==========
-// Simple auth check
+// ========== AUTH CHECK MIDDLEWARE ==========
 const checkAuth = (req, res, next) => {
   const token = req.headers.authorization;
   if (!token) {
     return res.status(401).json({ error: 'No token' });
   }
-  req.userId = token.split('_')[2] || 'demo_user'; // Extract from token
+  req.userId = token.split('_')[2]; // Extract userId from token
   next();
 };
 
-// Get all assignments for user
-app.get('/api/assignments', checkAuth, (req, res) => {
-  const userAssignments = assignments.filter(a => a.userId === req.userId);
-  
-  // If no assignments, return sample data
-  if (userAssignments.length === 0) {
-    const sampleAssignments = [
-      {
+// ========== ASSIGNMENT ROUTES ==========
+app.get('/api/assignments', checkAuth, async (req, res) => {
+  try {
+    const userAssignments = await Assignment.find({ userId: req.userId });
+
+    // Return sample assignment if user has none
+    if (userAssignments.length === 0) {
+      return res.json([{
         _id: '1',
         userId: req.userId,
         title: 'Welcome Assignment',
@@ -138,60 +112,60 @@ app.get('/api/assignments', checkAuth, (req, res) => {
         status: 'pending',
         description: 'This is a sample assignment',
         createdAt: new Date()
-      }
-    ];
-    return res.json(sampleAssignments);
+      }]);
+    }
+
+    res.json(userAssignments);
+  } catch (err) {
+    console.error("Fetch assignments error:", err);
+    res.status(500).json({ error: 'Failed to fetch assignments' });
   }
-  
-  res.json(userAssignments);
 });
 
-// Create new assignment
-app.post('/api/assignments', checkAuth, (req, res) => {
-  console.log('➕ CREATE ASSIGNMENT:', req.body);
-  
-  const newAssignment = {
-    _id: 'assign_' + Date.now(),
-    userId: req.userId,
-    ...req.body,
-    createdAt: new Date()
-  };
-  
-  assignments.push(newAssignment);
-  res.status(201).json(newAssignment);
+app.post('/api/assignments', checkAuth, async (req, res) => {
+  try {
+    const newAssignment = new Assignment({
+      _id: 'assign_' + Date.now(),
+      userId: req.userId,
+      ...req.body,
+      createdAt: new Date()
+    });
+
+    await newAssignment.save();
+    res.status(201).json(newAssignment);
+  } catch (err) {
+    console.error("Create assignment error:", err);
+    res.status(500).json({ error: 'Failed to create assignment' });
+  }
 });
 
-// Update assignment
-app.put('/api/assignments/:id', checkAuth, (req, res) => {
-  console.log('✏️ UPDATE ASSIGNMENT:', req.params.id, req.body);
-  
-  const index = assignments.findIndex(a => a._id === req.params.id && a.userId === req.userId);
-  
-  if (index === -1) {
-    return res.status(404).json({ error: 'Assignment not found' });
+app.put('/api/assignments/:id', checkAuth, async (req, res) => {
+  try {
+    const updatedAssignment = await Assignment.findOneAndUpdate(
+      { _id: req.params.id, userId: req.userId },
+      { ...req.body, updatedAt: new Date() },
+      { new: true }
+    );
+
+    if (!updatedAssignment) return res.status(404).json({ error: 'Assignment not found' });
+
+    res.json(updatedAssignment);
+  } catch (err) {
+    console.error("Update assignment error:", err);
+    res.status(500).json({ error: 'Failed to update assignment' });
   }
-  
-  assignments[index] = {
-    ...assignments[index],
-    ...req.body,
-    updatedAt: new Date()
-  };
-  
-  res.json(assignments[index]);
 });
 
-// Delete assignment
-app.delete('/api/assignments/:id', checkAuth, (req, res) => {
-  console.log('🗑️ DELETE ASSIGNMENT:', req.params.id);
-  
-  const index = assignments.findIndex(a => a._id === req.params.id && a.userId === req.userId);
-  
-  if (index === -1) {
-    return res.status(404).json({ error: 'Assignment not found' });
+app.delete('/api/assignments/:id', checkAuth, async (req, res) => {
+  try {
+    const deleted = await Assignment.deleteOne({ _id: req.params.id, userId: req.userId });
+    if (deleted.deletedCount === 0) return res.status(404).json({ error: 'Assignment not found' });
+
+    res.json({ message: 'Assignment deleted successfully' });
+  } catch (err) {
+    console.error("Delete assignment error:", err);
+    res.status(500).json({ error: 'Failed to delete assignment' });
   }
-  
-  assignments.splice(index, 1);
-  res.json({ message: 'Assignment deleted successfully' });
 });
 
 // ========== START SERVER ==========
@@ -200,11 +174,6 @@ app.listen(PORT, () => {
   console.log('='.repeat(50));
   console.log('🚀 SERVER STARTED SUCCESSFULLY!');
   console.log(`📍 Port: ${PORT}`);
-  console.log('='.repeat(50));
-  console.log('✅ Test these URLs in your browser:');
-  console.log(`   1. http://localhost:${PORT}/`);
-  console.log(`   2. http://localhost:${PORT}/api/health`);
-  console.log('='.repeat(50));
   console.log('📱 Frontend should be at: http://localhost:3000');
   console.log('='.repeat(50));
 });
