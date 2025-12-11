@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Container, Form, Button, Card, Alert, Row, Col } from 'react-bootstrap';
-import API from '../utils/api';
+import API, { loginUser, registerUser } from '../utils/api'; // ✅ Updated import
 
 function Login() {
   const [isLogin, setIsLogin] = useState(true);
@@ -22,31 +22,36 @@ function Login() {
     });
   };
 
+  // ✅ Updated handleSubmit with login/register helpers and password confirmation check
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
     try {
-      let endpoint = isLogin ? '/auth/login' : '/auth/register';
-      let data = isLogin 
-        ? { email: formData.email, password: formData.password }
-        : {
-            username: formData.username,
-            email: formData.email,
-            password: formData.password
-          };
+      let response;
 
-      // Make API call
-      const response = await API.post(endpoint, data);
-      
-      // Save data to localStorage
+      if (isLogin) {
+        // Use login helper
+        response = await loginUser(formData.email, formData.password);
+      } else {
+        // Check password confirmation before registering
+        if (formData.password !== formData.confirmPassword) {
+          setError("Passwords do not match");
+          setLoading(false);
+          return;
+        }
+        // Use register helper
+        response = await registerUser(formData.username, formData.email, formData.password);
+      }
+
+      // Save token and user info
       localStorage.setItem('token', response.data.token);
       localStorage.setItem('user', JSON.stringify(response.data.user));
-      
+
       // Redirect to dashboard
       navigate('/dashboard');
-      
+
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'Something went wrong');
     } finally {
@@ -61,11 +66,11 @@ function Login() {
           <Card className="shadow">
             <Card.Body>
               <h2 className="text-center mb-4">
-  {isLogin ? 'Login' : 'Register'} to <span className="text-primary">HomeworkHub</span>
-            </h2>
-              
+                {isLogin ? 'Login' : 'Register'} to <span className="text-primary">HomeworkHub</span>
+              </h2>
+
               {error && <Alert variant="danger">{error}</Alert>}
-              
+
               <Form onSubmit={handleSubmit}>
                 {!isLogin && (
                   <Form.Group className="mb-3">
@@ -80,7 +85,7 @@ function Login() {
                     />
                   </Form.Group>
                 )}
-                
+
                 <Form.Group className="mb-3">
                   <Form.Label>Email</Form.Label>
                   <Form.Control
@@ -92,19 +97,19 @@ function Login() {
                     disabled={loading}
                   />
                 </Form.Group>
-                
+
                 <Form.Group className="mb-3">
                   <Form.Label>Password</Form.Label>
                   <Form.Control
                     type="password"
                     name="password"
-                      value={formData.password}
-                      onChange={handleChange}
+                    value={formData.password}
+                    onChange={handleChange}
                     required
                     disabled={loading}
                   />
                 </Form.Group>
-                
+
                 {!isLogin && (
                   <Form.Group className="mb-3">
                     <Form.Label>Confirm Password</Form.Label>
@@ -118,7 +123,7 @@ function Login() {
                     />
                   </Form.Group>
                 )}
-                
+
                 <Button
                   type="submit"
                   className="w-100 mb-3"
@@ -128,7 +133,7 @@ function Login() {
                   {loading ? 'Processing...' : (isLogin ? 'Login' : 'Register')}
                 </Button>
               </Form>
-              
+
               <div className="text-center">
                 <Button
                   variant="link"

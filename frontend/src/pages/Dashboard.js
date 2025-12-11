@@ -18,9 +18,9 @@ function Dashboard() {
   const navigate = useNavigate();
 
   const [user] = useState(() => {
-  const storedUser = localStorage.getItem('user');
-  return storedUser ? JSON.parse(storedUser) : null;
-});
+    const storedUser = localStorage.getItem('user');
+    return storedUser ? JSON.parse(storedUser) : null;
+  });
 
   useEffect(() => {
     if (!user) {
@@ -30,27 +30,31 @@ function Dashboard() {
     fetchAssignments();
   }, [user, navigate]);
 
+  // ====== FETCH ASSIGNMENTS ======
   const fetchAssignments = async () => {
     try {
       setLoading(true);
       setError('');
-      const response = await API.get('/assignments');
-      
-      if (response.data.success) {
-        setAssignments(response.data.data || []);
-      } else {
-        setAssignments([]);
-        setError('Could not load assignments');
-      }
+
+      // ✅ Use API instance which handles token automatically
+      const response = await API.get('/assignments'); 
+      setAssignments(Array.isArray(response.data) ? response.data : []);
     } catch (err) {
-      console.error('Failed to fetch assignments:', err.message);
+      console.error('❌ Failed to fetch assignments:', err.response || err.message);
       setAssignments([]);
-      setError('Starting fresh. Add your first assignment!');
+      if (err.response?.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        navigate('/login');
+        return;
+      }
+      setError('Failed to load assignments. Please try again.');
     } finally {
       setLoading(false);
-  }
+    }
   };
 
+  // ====== LOGOUT ======
   const handleLogout = () => {
     if (window.confirm('Are you sure you want to logout?')) {
       localStorage.removeItem('token');
@@ -59,112 +63,62 @@ function Dashboard() {
     }
   };
 
+  // ====== ADD ASSIGNMENT ======
   const handleAddAssignment = async (assignmentData) => {
-  console.log('📤 Adding assignment:', assignmentData);
-  
-  try {
-    // Make sure we have a valid token
-    const token = localStorage.getItem('token');
-    if (!token) {
-      setError('Please login again');
-      return;
+    try {
+      const response = await API.post('/assignments', assignmentData);
+      setAssignments([...assignments, response.data]);
+      setShowForm(false);
+      setError('Assignment added successfully!');
+      setTimeout(() => setError(''), 3000);
+    } catch (err) {
+      console.error('❌ Error adding assignment:', err.response || err.message);
+      setError(err.response?.data?.message || 'Failed to add assignment');
     }
-    
-    // Format the data
-    const assignmentToSend = {
-      title: assignmentData.title,
-      course: assignmentData.course,
-      dueDate: assignmentData.dueDate,
-      priority: assignmentData.priority || 'medium',
-      status: assignmentData.status || 'pending',
-      description: assignmentData.description || ''
-    };
-    
-    console.log('📦 Sending to backend:', assignmentToSend);
-    
-    // Make API call
-    const response = await API.post('/assignments', assignmentToSend);
-    
-    console.log('✅ Backend response:', response.data);
-    
-    // Add to local state
-    setAssignments([...assignments, response.data]);
-    
-    // Close form
-    setShowForm(false);
-    
-    // Show success message
-    setError('Assignment added successfully!');
-    setTimeout(() => setError(''), 3000);
-    
-  } catch (err) {
-    console.error('❌ Error adding assignment:', err);
-    console.error('Error details:', err.response?.data || err.message);
-    
-    // Show error
-    setError(`Failed to add: ${err.response?.data?.message || err.message || 'Unknown error'}`);
-  }
-};
+  };
+
+  // ====== UPDATE ASSIGNMENT ======
   const handleUpdateAssignment = async (id, updatedData) => {
     try {
-      setError('');
       const response = await API.put(`/assignments/${id}`, updatedData);
-      
-      if (response.data.success) {
-        setAssignments(assignments.map(a => 
-          a._id === id ? response.data.data : a
-        ));
-        setEditingAssignment(null);
-      } else {
-        setError(response.data.message || 'Failed to update assignment');
-      }
+      setAssignments(assignments.map(a => a._id === id ? response.data : a));
+      setEditingAssignment(null);
+      setError('Assignment updated successfully!');
+      setTimeout(() => setError(''), 3000);
     } catch (err) {
-      console.error('Update assignment error:', err);
-      setError('Failed to update assignment. Please try again.');
+      console.error('❌ Update error:', err.response || err.message);
+      setError(err.response?.data?.message || 'Failed to update assignment');
     }
   };
 
+  // ====== DELETE ASSIGNMENT ======
   const handleDeleteAssignment = async (id) => {
     if (!window.confirm('Are you sure you want to delete this assignment?')) return;
-    
     try {
-      setError('');
-      const response = await API.delete(`/assignments/${id}`);
-      
-      if (response.data.success) {
-        setAssignments(assignments.filter(a => a._id !== id));
-      } else {
-        setError(response.data.message || 'Failed to delete assignment');
-      }
+      await API.delete(`/assignments/${id}`);
+      setAssignments(assignments.filter(a => a._id !== id));
+      alert('✅ Assignment deleted successfully!');
     } catch (err) {
-      console.error('Delete assignment error:', err);
-      setError('Failed to delete assignment. Please try again.');
+      console.error('❌ Delete error:', err.response || err.message);
+      alert(err.response?.data?.message || 'Failed to delete assignment');
     }
   };
 
+  // ====== TOGGLE STATUS ======
   const handleToggleStatus = async (id) => {
     const assignment = assignments.find(a => a._id === id);
     if (!assignment) return;
-    
     const newStatus = assignment.status === 'completed' ? 'pending' : 'completed';
-    
     try {
-      setError('');
       const response = await API.put(`/assignments/${id}`, { status: newStatus });
-      
-      if (response.data.success) {
-        setAssignments(assignments.map(a => 
-          a._id === id ? response.data.data : a
-        ));
-      } else {
-        setError(response.data.message || 'Failed to update status');
-      }
+      setAssignments(assignments.map(a => a._id === id ? response.data : a));
     } catch (err) {
-      console.error('Toggle status error:', err);
-      setError('Failed to update status. Please try again.');
+      console.error('❌ Toggle status error:', err.response || err.message);
+      setError('Failed to update status');
     }
   };
 
+  // ====== FILTERED ASSIGNMENTS ======
   const filteredAssignments = assignments.filter(assignment => {
     if (filter === 'all') return true;
     if (filter === 'pending') return assignment.status === 'pending';
@@ -178,6 +132,7 @@ function Dashboard() {
     return true;
   });
 
+  // ====== STATS ======
   const stats = {
     total: assignments.length,
     pending: assignments.filter(a => a.status === 'pending').length,
@@ -218,7 +173,7 @@ function Dashboard() {
 
   return (
     <Container fluid className="p-3 p-md-4" style={{ minHeight: '100vh', backgroundColor: '#f8f9fa' }}>
-      {/* Header */}
+      {/* === HEADER === */}
       <Row className="mb-4 align-items-center">
         <Col>
           <h1 className="text-primary mb-2">HomeworkHub</h1>
@@ -234,14 +189,14 @@ function Dashboard() {
         </Col>
       </Row>
 
-      {/* Error Alert */}
+      {/* === ERROR ALERT === */}
       {error && (
         <Alert variant="warning" onClose={() => setError('')} dismissible className="mb-4">
           {error}
         </Alert>
       )}
 
-      {/* Stats Cards */}
+      {/* === STATS CARDS === */}
       <Row className="mb-4 g-3">
         <Col xs={6} md={3}>
           <Card className="border-0 shadow-sm h-100">
@@ -277,7 +232,7 @@ function Dashboard() {
         </Col>
       </Row>
 
-      {/* Controls */}
+      {/* === CONTROLS === */}
       <Row className="mb-4 align-items-center">
         <Col md={8}>
           <Button variant="primary" onClick={() => setShowForm(true)} className="me-3 mb-2 mb-md-0">
@@ -331,7 +286,7 @@ function Dashboard() {
         </Col>
       </Row>
 
-      {/* Assignment Form */}
+      {/* === ASSIGNMENT FORM === */}
       {(showForm || editingAssignment) && (
         <Card className="mb-4 shadow border-primary">
           <Card.Body>
@@ -350,7 +305,7 @@ function Dashboard() {
         </Card>
       )}
 
-      {/* Assignments List */}
+      {/* === ASSIGNMENTS LIST === */}
       <Row>
         {filteredAssignments.length === 0 ? (
           <Col xs={12}>
@@ -497,7 +452,7 @@ function Dashboard() {
         )}
       </Row>
       
-      {/* Footer */}
+      {/* === FOOTER === */}
       {assignments.length > 0 && (
         <Row className="mt-4">
           <Col>
