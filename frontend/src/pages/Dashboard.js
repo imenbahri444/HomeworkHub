@@ -18,9 +18,9 @@ function Dashboard() {
   const navigate = useNavigate();
 
   const [user] = useState(() => {
-  const storedUser = localStorage.getItem('user');
-  return storedUser ? JSON.parse(storedUser) : null;
-});
+    const storedUser = localStorage.getItem('user');
+    return storedUser ? JSON.parse(storedUser) : null;
+  });
 
   useEffect(() => {
     if (!user) {
@@ -30,51 +30,31 @@ function Dashboard() {
     fetchAssignments();
   }, [user, navigate]);
 
-const fetchAssignments = async () => {
-  try {
-    setLoading(true);
-    setError('');
-    
-    const token = localStorage.getItem('token'); 
-    
-    if (!token) {
-      console.error('Authentication token missing. Navigating to login.');
-      navigate('/login');
-      return;
-    }
+  // ====== FETCH ASSIGNMENTS ======
+  const fetchAssignments = async () => {
+    try {
+      setLoading(true);
+      setError('');
 
-    const response = await fetch('http://localhost:5000/api/assignments', { 
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}` 
-      }
-    });
-
-    const data = await response.json(); 
-    
-    if (response.ok) { 
-      // FIXED LINE: Your backend returns direct array, not {data: array}
-      setAssignments(Array.isArray(data) ? data : []); 
-    } else {
+      // ✅ Use API instance which handles token automatically
+      const response = await API.get('/assignments'); 
+      setAssignments(Array.isArray(response.data) ? response.data : []);
+    } catch (err) {
+      console.error('❌ Failed to fetch assignments:', err.response || err.message);
       setAssignments([]);
-      if (response.status === 401) {
+      if (err.response?.status === 401) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         navigate('/login');
         return;
       }
-      setError(data.message || 'Could not load assignments');
+      setError('Failed to load assignments. Please try again.');
+    } finally {
+      setLoading(false);
     }
+  };
 
-  } catch (err) {
-    console.error('❌ Failed to fetch assignments:', err.message);
-    setAssignments([]);
-    setError('Connection error or unauthorized. Please verify server status.');
-  } finally {
-    setLoading(false);
-  }
-};
-    
+  // ====== LOGOUT ======
   const handleLogout = () => {
     if (window.confirm('Are you sure you want to logout?')) {
       localStorage.removeItem('token');
@@ -83,186 +63,62 @@ const fetchAssignments = async () => {
     }
   };
 
+  // ====== ADD ASSIGNMENT ======
   const handleAddAssignment = async (assignmentData) => {
-  console.log('📤 Adding assignment:', assignmentData);
-  
-  try {
-    // Make sure we have a valid token
-    const token = localStorage.getItem('token');
-    if (!token) {
-      setError('Please login again');
-      return;
-    }
-    
-    // Format the data
-    const assignmentToSend = {
-      title: assignmentData.title,
-      course: assignmentData.course,
-      dueDate: assignmentData.dueDate,
-      priority: assignmentData.priority || 'medium',
-      status: assignmentData.status || 'pending',
-      description: assignmentData.description || ''
-    };
-    
-    console.log('📦 Sending to backend:', assignmentToSend);
-    
-    // Make API call
-    const response = await API.post('/assignments', assignmentToSend);
-    
-    console.log('✅ Backend response:', response.data);
-    
-    // Add to local state
-    setAssignments([...assignments, response.data]);
-    
-    // Close form
-    setShowForm(false);
-    
-    // Show success message
-    setError('Assignment added successfully!');
-    setTimeout(() => setError(''), 3000);
-    
-  } catch (err) {
-    console.error('❌ Error adding assignment:', err);
-    console.error('Error details:', err.response?.data || err.message);
-    
-    // Show error
-    setError(`Failed to add: ${err.response?.data?.message || err.message || 'Unknown error'}`);
-  }
-};
-  const handleUpdateAssignment = async (id, updatedData) => {
-  console.log('✏️ Attempting to update assignment ID:', id);
-  console.log('📦 Update data:', updatedData);
-  console.log('📋 Current assignments:', assignments);
-  
-  try {
-    const token = localStorage.getItem('token');
-    
-    if (!token) {
-      setError('Please login again');
-      return;
-    }
-    
-    // Format the data
-    const dataToSend = {
-      title: updatedData.title || '',
-      course: updatedData.course || '',
-      dueDate: updatedData.dueDate || new Date().toISOString().split('T')[0],
-      priority: updatedData.priority || 'medium',
-      status: updatedData.status || 'pending',
-      description: updatedData.description || ''
-    };
-    
-    console.log('📤 Sending to backend:', dataToSend);
-    
-    // Use fetch for consistency
-    const response = await fetch(`http://localhost:5000/api/assignments/${id}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': token
-      },
-      body: JSON.stringify(dataToSend)
-    });
-    
-    const result = await response.json();
-    console.log('✅ Update response:', result);
-    
-    if (response.ok) {
-      // Update the assignment in state
-      const updatedAssignments = assignments.map(assignment => {
-        if (assignment._id === id) {
-          return { ...assignment, ...dataToSend };
-        }
-        return assignment;
-      });
-      
-      console.log('🔄 Updated assignments:', updatedAssignments);
-      setAssignments(updatedAssignments);
-      setEditingAssignment(null);
-      
-      // Show success
-      setError('Assignment updated successfully!');
-      setTimeout(() => setError(''), 3000);
-    } else {
-      setError(`Failed to update: ${result.error || result.message}`);
-    }
-    
-  } catch (error) {
-    console.error('❌ Update error:', error);
-    setError('Error updating assignment. Check console for details.');
-  }
-};
-
-const handleDeleteAssignment = async (id) => {
-  console.log('🗑️ Attempting to delete assignment ID:', id);
-  console.log('📋 Current assignments:', assignments);
-  
-  if (!window.confirm('Are you sure you want to delete this assignment?')) {
-    return;
-  }
-  
-  try {
-    // Get token from localStorage
-    const token = localStorage.getItem('token');
-    
-    if (!token) {
-      alert('Please login again');
-      return;
-    }
-    
-    console.log('🔑 Token available:', token ? 'Yes' : 'No');
-    
-    // Use fetch instead of API for consistency
-    const response = await fetch(`http://localhost:5000/api/assignments/${id}`, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': token
-      }
-    });
-    
-    const result = await response.json();
-    console.log('🗑️ Delete response:', result);
-    
-    if (response.ok) {
-      // Filter out the deleted assignment from state
-      const updatedAssignments = assignments.filter(assignment => assignment._id !== id);
-      console.log('✅ Updated assignments after delete:', updatedAssignments);
-      
-      setAssignments(updatedAssignments);
-      alert('✅ Assignment deleted successfully!');
-    } else {
-      alert(`❌ Failed to delete: ${result.error || result.message}`);
-    }
-    
-  } catch (error) {
-    console.error('❌ Delete error:', error);
-    alert('❌ Error deleting assignment. Check console for details.');
-  }
-};
-
-  const handleToggleStatus = async (id) => {
-    const assignment = assignments.find(a => a._id === id);
-    if (!assignment) return;
-    
-    const newStatus = assignment.status === 'completed' ? 'pending' : 'completed';
-    
     try {
-      setError('');
-      const response = await API.put(`/assignments/${id}`, { status: newStatus });
-      
-      if (response.data.success) {
-        setAssignments(assignments.map(a => 
-          a._id === id ? response.data.data : a
-        ));
-      } else {
-        setError(response.data.message || 'Failed to update status');
-      }
+      const response = await API.post('/assignments', assignmentData);
+      setAssignments([...assignments, response.data]);
+      setShowForm(false);
+      setError('Assignment added successfully!');
+      setTimeout(() => setError(''), 3000);
     } catch (err) {
-      console.error('Toggle status error:', err);
-      setError('Failed to update status. Please try again.');
+      console.error('❌ Error adding assignment:', err.response || err.message);
+      setError(err.response?.data?.message || 'Failed to add assignment');
     }
   };
 
+  // ====== UPDATE ASSIGNMENT ======
+  const handleUpdateAssignment = async (id, updatedData) => {
+    try {
+      const response = await API.put(`/assignments/${id}`, updatedData);
+      setAssignments(assignments.map(a => a._id === id ? response.data : a));
+      setEditingAssignment(null);
+      setError('Assignment updated successfully!');
+      setTimeout(() => setError(''), 3000);
+    } catch (err) {
+      console.error('❌ Update error:', err.response || err.message);
+      setError(err.response?.data?.message || 'Failed to update assignment');
+    }
+  };
+
+  // ====== DELETE ASSIGNMENT ======
+  const handleDeleteAssignment = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this assignment?')) return;
+    try {
+      await API.delete(`/assignments/${id}`);
+      setAssignments(assignments.filter(a => a._id !== id));
+      alert('✅ Assignment deleted successfully!');
+    } catch (err) {
+      console.error('❌ Delete error:', err.response || err.message);
+      alert(err.response?.data?.message || 'Failed to delete assignment');
+    }
+  };
+
+  // ====== TOGGLE STATUS ======
+  const handleToggleStatus = async (id) => {
+    const assignment = assignments.find(a => a._id === id);
+    if (!assignment) return;
+    const newStatus = assignment.status === 'completed' ? 'pending' : 'completed';
+    try {
+      const response = await API.put(`/assignments/${id}`, { status: newStatus });
+      setAssignments(assignments.map(a => a._id === id ? response.data : a));
+    } catch (err) {
+      console.error('❌ Toggle status error:', err.response || err.message);
+      setError('Failed to update status');
+    }
+  };
+
+  // ====== FILTERED ASSIGNMENTS ======
   const filteredAssignments = assignments.filter(assignment => {
     if (filter === 'all') return true;
     if (filter === 'pending') return assignment.status === 'pending';
@@ -276,6 +132,7 @@ const handleDeleteAssignment = async (id) => {
     return true;
   });
 
+  // ====== STATS ======
   const stats = {
     total: assignments.length,
     pending: assignments.filter(a => a.status === 'pending').length,
@@ -316,7 +173,7 @@ const handleDeleteAssignment = async (id) => {
 
   return (
     <Container fluid className="p-3 p-md-4" style={{ minHeight: '100vh', backgroundColor: '#f8f9fa' }}>
-      {/* Header */}
+      {/* === HEADER === */}
       <Row className="mb-4 align-items-center">
         <Col>
           <h1 className="text-primary mb-2">HomeworkHub</h1>
@@ -332,14 +189,14 @@ const handleDeleteAssignment = async (id) => {
         </Col>
       </Row>
 
-      {/* Error Alert */}
+      {/* === ERROR ALERT === */}
       {error && (
         <Alert variant="warning" onClose={() => setError('')} dismissible className="mb-4">
           {error}
         </Alert>
       )}
 
-      {/* Stats Cards */}
+      {/* === STATS CARDS === */}
       <Row className="mb-4 g-3">
         <Col xs={6} md={3}>
           <Card className="border-0 shadow-sm h-100">
@@ -375,7 +232,7 @@ const handleDeleteAssignment = async (id) => {
         </Col>
       </Row>
 
-      {/* Controls */}
+      {/* === CONTROLS === */}
       <Row className="mb-4 align-items-center">
         <Col md={8}>
           <Button variant="primary" onClick={() => setShowForm(true)} className="me-3 mb-2 mb-md-0">
@@ -429,7 +286,7 @@ const handleDeleteAssignment = async (id) => {
         </Col>
       </Row>
 
-      {/* Assignment Form */}
+      {/* === ASSIGNMENT FORM === */}
       {(showForm || editingAssignment) && (
         <Card className="mb-4 shadow border-primary">
           <Card.Body>
@@ -448,7 +305,7 @@ const handleDeleteAssignment = async (id) => {
         </Card>
       )}
 
-      {/* Assignments List */}
+      {/* === ASSIGNMENTS LIST === */}
       <Row>
         {filteredAssignments.length === 0 ? (
           <Col xs={12}>
@@ -595,7 +452,7 @@ const handleDeleteAssignment = async (id) => {
         )}
       </Row>
       
-      {/* Footer */}
+      {/* === FOOTER === */}
       {assignments.length > 0 && (
         <Row className="mt-4">
           <Col>
